@@ -7,7 +7,7 @@
 | Sprint 0: Environment Setup | ✅ COMPLETED | Rust, SP1, Foundry, Next.js installed |
 | Sprint 1: Credit State Machine | ✅ COMPLETED | 9/9 tests passing |
 | Sprint 2: SP1 Integration | ✅ COMPLETED | Proofs generating, verified |
-| Sprint 3: Solidity Verifier | ⏳ PENDING | Blocked on Sprint 2 |
+| Sprint 3: Solidity Verifier | ✅ COMPLETED | Deployed to Creditcoin testnet |
 | Sprint 4: Rollup Contracts | ✅ COMPLETED | 7/7 tests passing |
 | Sprint 5: Sequencer | 🔄 IN PROGRESS | Files created, blocked on Sprint 2 |
 | Sprint 6: Frontend | 🔄 IN PROGRESS | Components created, needs testing |
@@ -586,44 +586,42 @@ Verification key: 0x001f6be8d7020042452f3d67140c4b3b9189c55a3597d4dea93cb0b23d26
 
 ---
 
-## Sprint 3: Solidity Verifier (Day 8) ⏳ PENDING
+## Sprint 3: Solidity Verifier (Day 8) ✅ COMPLETED
 
 ### Goal
 Generate SP1 verifier and deploy to Creditcoin testnet
 
+### Implementation Notes
+- Using SP1 Groth16 verifier v4.0.0-rc.3 (compatible with SP1 SDK 4.2.1)
+- Created SP1Verifier.sol wrapper that imports from sp1-contracts library
+- Created Deploy.s.sol script for contract deployment
+- Added 4 new tests for SP1Verifier (total: 11 tests passing)
+
 ### Commands
 
 ```bash
-# Generate EVM verifier
-cd script
-cargo run --release -- --evm
-
-# This creates contracts/src/SP1Verifier.sol
-```
-
-### Deployment
-
-```bash
+# Build and test contracts
 cd contracts
+forge build
+forge test
 
-# Set environment variables
-export CREDITCOIN_RPC="https://rpc.testnet.creditcoin.org"
-export PRIVATE_KEY="your-private-key"
-
-# Deploy verifier
-forge create src/SP1Verifier.sol:SP1Verifier \
-  --rpc-url $CREDITCOIN_RPC \
-  --private-key $PRIVATE_KEY
+# Deploy to Creditcoin testnet
+source .env
+forge create src/SP1Verifier.sol:SP1Verifier --rpc-url $CREDITCOIN_RPC --private-key $PRIVATE_KEY --broadcast
+forge create src/RollupCore.sol:RollupCore --rpc-url $CREDITCOIN_RPC --private-key $PRIVATE_KEY --broadcast \
+  --constructor-args $VERIFIER_ADDRESS $PROGRAM_VKEY $INITIAL_STATE_ROOT
 ```
 
 ### Deliverable
-SP1Verifier.sol deployed to Creditcoin testnet
+SP1Verifier.sol and RollupCore.sol deployed to Creditcoin testnet
 
 ### Checkpoint
-- [ ] Verifier contract generated
-- [ ] Contract compiles with Foundry
-- [ ] Deployed to Creditcoin testnet
-- [ ] Note contract address: `____________`
+- [x] Verifier contract generated (SP1Verifier.sol wrapping v4.0.0-rc.3 Groth16 verifier)
+- [x] Contract compiles with Foundry (11/11 tests passing)
+- [x] Deployed to Creditcoin testnet
+- [x] SP1Verifier address: `0x48eECA83A5A0B3072E9a71714589D55F1e70016D`
+- [x] RollupCore address: `0x7Ec1eb320aAe1F7BA8a324198E17d3Cf096B4679`
+- [x] Program verification key: `0x00d8368ebc6b3182ab36aa155e295897798a2b997db6c3bcb12a8387b571c476`
 
 ---
 
@@ -1256,12 +1254,16 @@ cd sequencer && cargo run --release
 cd frontend && npm run dev
 ```
 
-### Contract Addresses (To Fill)
+### Contract Addresses (Creditcoin CC3 Testnet)
 
 | Contract | Testnet Address |
 |----------|-----------------|
-| SP1Verifier | `___________________` |
-| RollupCore | `___________________` |
+| SP1Verifier | `0x48eECA83A5A0B3072E9a71714589D55F1e70016D` |
+| RollupCore | `0x7Ec1eb320aAe1F7BA8a324198E17d3Cf096B4679` |
+
+**Deployer:** `0xABaF59180e0209bdB8b3048bFbe64e855074C0c4`
+**RPC:** `https://rpc.cc3-testnet.creditcoin.network`
+**Chain ID:** `102287` (0x18e8f)
 
 ---
 
