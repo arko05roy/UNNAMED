@@ -1,350 +1,592 @@
-# zkCredit L2 - AGILE Implementation Plan
+# zkCredit - Private Credit Scoring for DeFi Lending on Creditcoin
+
+## STRATEGIC PIVOT (Jan 30, 2026)
+
+**Old stack:** SP1 zkVM (Rust) → Sequencer (Rust/Axum) → Contracts → Frontend
+**New stack:** Noir circuit → noir_js (browser proof gen) → Contracts → Frontend
+
+**Why Noir over SP1:**
+- Credit history never leaves the user's browser (strongest possible privacy story)
+- No backend server needed (2 components instead of 3, nothing to crash during demo)
+- Noir is purpose-built for "prove a property about private data" (SP1 is a general-purpose zkVM -- overkill)
+- Simpler circuit, faster development, cleaner architecture
+- Demo moment: judge generates proof IN THEIR BROWSER, data never transmitted
+
+**Track:** DeFi (lending, credit, privacy)
+**One-liner:** "Prove your creditworthiness without revealing your history. Zero-knowledge credit scoring, entirely in your browser."
+
+**Why this wins on Creditcoin:**
+- Creditcoin = "credit coin" → you're building private credit scoring on the credit chain
+- Creditcoin's blog: "privacy for borrowers is essential"
+- Tae Oh's mission: microloans for 1.4B unbanked, privacy-preserving
+- DeFi track: lending + credit scoring = direct fit
+- 30 participants: judges have time, technical depth is valued
+- Demo Day Seoul (March 21): finalists fly out, needs to demo live
+- ZK credit scoring is validated (zkMe, ETHGlobal winners)
+
+---
 
 ## Progress Summary (Updated: Jan 30, 2026)
 
+### Preserved from SP1 phase
+| Sprint | Status | Notes |
+|--------|--------|-------|
+| Environment Setup | ✅ COMPLETED | Rust, Foundry, Next.js |
+| Credit State Machine | ✅ COMPLETED | Scoring logic → port to Noir |
+| SP1 Integration | ✅ COMPLETED | NOT USED in new arch (keep as depth proof) |
+| Solidity Verifier (SP1) | ✅ COMPLETED | NOT USED (deploying Noir verifier instead) |
+| RollupCore | ✅ COMPLETED | KEEP deployed, mention as bonus feature |
+| Sequencer | ✅ COMPLETED | NOT USED in new arch (no backend needed) |
+
+### New Noir-based sprints
 | Sprint | Status | Progress |
 |--------|--------|----------|
-| Sprint 0: Environment Setup | ✅ COMPLETED | Rust, SP1, Foundry, Next.js installed |
-| Sprint 1: Credit State Machine | ✅ COMPLETED | 9/9 tests passing |
-| Sprint 2: SP1 Integration | ✅ COMPLETED | Proofs generating, verified |
-| Sprint 3: Solidity Verifier | ✅ COMPLETED | Deployed to Creditcoin testnet |
-| Sprint 4: Rollup Contracts | ✅ COMPLETED | 11/11 tests passing, deployed, ABI verified on-chain |
-| Sprint 4B: Verify Deployed RollupCore | ✅ COMPLETED | On-chain ABI matches source, no redeploy needed |
-| Sprint 5: Sequencer | ✅ COMPLETED | SDK fixed, real L1 submitter via alloy, 14/14 tests passing |
-| Sprint 6: Frontend | ⚠️ PARTIAL | Components exist, untested against live sequencer |
-| Sprint 7: Demo Polish | ⏳ PENDING | - |
-| Sprint 8: Video + Submission | ⏳ PENDING | - |
-
-### Issues Resolved (Jan 29-30)
-
-1. ~~**Sequencer SP1 SDK mismatch**~~: Fixed `sp1-sdk` and `sp1-build` from `5.0.8` to `=4.2.1`. Pinned `serde = "=1.0.217"` for alloy-consensus 0.14 compat.
-2. ~~**L1 submission fully mocked**~~: Replaced with real alloy-based submitter using `alloy-provider`, `alloy-contract`, `alloy-signer-local` (all 0.14.x matching sp1-sdk internals). Signs, sends, waits for receipt, returns real tx hash.
-3. ~~**Sequencer never tested running**~~: Sequencer compiles and checks pass. 14 automated tests written and passing (9 batch + 5 L1 integration). 6 API endpoint tests ready for live sequencer.
-4. **Frontend never tested**: Still needs testing against live sequencer.
-5. ~~**Sprint 4 contracts not deployed**~~: Verified deployed `0x7Ec1...` ABI matches source on-chain. `getStateRoot`, `getBatchNumber`, `programVKey`, `verifier` all return expected values. No redeploy needed.
-6. ~~**AGILE_PLAN code samples are stale**~~: Updated below.
-
-### Open Issues
-
-- **Frontend untested**: Components exist but nobody ran `npm run dev` against a live sequencer.
-- **Chain ID correction**: Actual Creditcoin CC3 testnet chain ID is `102031`, not `102287`.
+| N1: Noir Circuit | 🔄 TODO | Credit score proof circuit |
+| N2: Noir Verifier Contract | 🔄 TODO | UltraHonk verifier + CreditVerifier + LendingPool |
+| N3: Browser Proof Integration | 🔄 TODO | noir_js + barretenberg in Next.js |
+| N4: Frontend (Lending UI) | 🔄 TODO | Borrower flow + privacy visualization |
+| N5: Demo Polish | ⏳ PENDING | - |
+| N6: Video + Submission | ⏳ PENDING | - |
 
 **Deadline:** February 22, 2026 (23 days remaining)
+**Demo Day:** March 21, 2026 (Seoul, if finalist)
 
 ---
 
-## Project Overview
-
-**Name:** zkCredit L2 - ZK Validity Rollup for Private Credit
-**Hackathon:** BUIDL CTC Hackathon - Creditcoin
-**Deadline:** February 22, 2026
-
-**One-Liner:** "100 credit operations. 1 ZK proof. 1 transaction. 100x cheaper."
-
----
-
-## Architecture Overview
+## New Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      CREDITCOIN L1 (EVM)                        │
-│  ┌────────────────┐  ┌────────────────┐                        │
-│  │ RollupCore.sol │  │ SP1Verifier.sol│                        │
-│  │ - submitBatch  │  │ - verifyProof  │                        │
-│  │ - stateRoot    │  │ - programVKey  │                        │
-│  └────────────────┘  └────────────────┘                        │
-└─────────────────────────────────────────────────────────────────┘
-                              ▲
-                              │ Submit: (proofBytes, publicValues, numOps)
-                              │
-┌─────────────────────────────────────────────────────────────────┐
-│                    SEQUENCER (Rust/Axum)                         │
-│  ┌──────────┐  ┌──────────┐  ┌───────────┐  ┌──────────────┐  │
-│  │ batch.rs │→ │prover.rs │→ │submitter.rs│→ │ Creditcoin L1│  │
-│  │ queue ops│  │ SP1 prove│  │ alloy txn  │  │  on-chain    │  │
-│  └──────────┘  └──────────┘  └───────────┘  └──────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-                              ▲
-                              │ HTTP API (port 3001)
-                              │
-┌─────────────────────────────────────────────────────────────────┐
-│                    FRONTEND (Next.js 16)                         │
-│  OperationForm → BatchStatus → ProofProgress → L1Status         │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                     USER'S BROWSER (Next.js)                      │
+│                                                                    │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │  PRIVATE ZONE (never leaves browser)                         │ │
+│  │                                                               │ │
+│  │  Credit History ──→ Noir Circuit ──→ ZK Proof                │ │
+│  │  (5 loans,          (compute score,   (32 bytes,             │ │
+│  │   3 repaid)          prove >= 650)     no history)            │ │
+│  │                                                               │ │
+│  │  noir_js + barretenberg.js (WASM)                            │ │
+│  └──────────────────────────────────────────────────────────────┘ │
+│                           │                                       │
+│                           │ Only proof + public inputs go out     │
+│                           ▼                                       │
+└──────────────────────────────────────────────────────────────────┘
+                            │
+                            │ submitProof(proofBytes, publicInputs)
+                            ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                    CREDITCOIN L1 (EVM)                             │
+│                                                                    │
+│  ┌──────────────────┐  ┌──────────────────┐                      │
+│  │  LendingPool.sol │  │CreditVerifier.sol│                      │
+│  │  - deposit()     │  │ - verifyProof()  │                      │
+│  │  - borrow(proof) │  │ - UltraHonk      │                      │
+│  │  - repay()       │  │   verification   │                      │
+│  │  - getPoolStats()│  └──────────────────┘                      │
+│  └──────────────────┘                                             │
+│                                                                    │
+│  ┌──────────────────┐  (BONUS: still deployed from SP1 phase)    │
+│  │  RollupCore.sol  │  Batch credit history updates              │
+│  │  SP1Verifier.sol │  Shows additional technical depth          │
+│  └──────────────────┘                                             │
+└──────────────────────────────────────────────────────────────────┘
 ```
+
+**Key insight:** There is NO backend server. The browser does everything. Credit history enters the browser, proof exits the browser, history never touches a server or the chain.
 
 ---
 
-## Actual File Structure (on disk)
+## File Structure (New)
 
 ```
 ctc/
-├── sp1-program/                    # ✅ COMPLETE
-│   ├── Cargo.toml                  # sp1-zkvm = "4.2.1"
+├── circuits/                          # 🔄 NEW: Noir circuit
+│   ├── Nargo.toml
 │   └── src/
-│       ├── lib.rs
-│       ├── main.rs                 # SP1 entrypoint
-│       ├── state.rs                # CreditState
-│       ├── operations.rs           # CreditOp, apply_batch
-│       └── types.rs                # Address, Loan, Repayment
-├── script/                         # ✅ COMPLETE
-│   ├── Cargo.toml                  # sp1-sdk = "4.2.1"
-│   ├── build.rs                    # sp1-build ELF compilation
-│   ├── src/main.rs                 # CLI: --execute / --prove / --groth16
-│   └── zkcredit-compressed.bin     # Generated proof artifact (1.3MB)
-├── contracts/                      # ✅ COMPLETE, deployed & verified
+│       └── main.nr                    # Credit score proof circuit
+├── contracts/                         # Partially reuse
 │   ├── foundry.toml
 │   ├── src/
-│   │   ├── RollupCore.sol          # ISP1Verifier + programVKey pattern
-│   │   └── SP1Verifier.sol         # Wraps SP1 Groth16 v4.0.0-rc.3
-│   ├── test/
-│   │   └── RollupCore.t.sol        # 7/7 passing
-│   └── script/
-│       └── Deploy.s.sol            # Forge deployment script
-├── sequencer/                      # ✅ COMPLETE, compiles & tests pass
-│   ├── Cargo.toml                  # sp1-sdk = "=4.2.1", alloy 0.14.x
-│   ├── build.rs                    # sp1-build ELF compilation
-│   ├── src/
-│   │   ├── main.rs                 # Axum server, port 3001
-│   │   ├── batch.rs                # BatchManager
-│   │   ├── prover.rs               # generate_proof(), execute_only()
-│   │   └── submitter.rs            # Real L1 submission via alloy
-│   └── tests/
-│       ├── batch_tests.rs          # 9/9 passing (state machine, roots, ops)
-│       ├── l1_integration.rs       # 5/5 passing (on-chain reads, chain ID)
-│       └── api_tests.rs            # 6 tests (require running sequencer)
-├── frontend/                       # ⚠️ UNTESTED
-│   ├── package.json                # Next.js 16, React 19
+│   │   ├── CreditVerifier.sol         # NEW: Noir UltraHonk verifier
+│   │   ├── LendingPool.sol            # NEW: Deposit/borrow/repay
+│   │   ├── RollupCore.sol             # EXISTING: keep deployed
+│   │   └── SP1Verifier.sol            # EXISTING: keep deployed
+│   └── test/
+│       ├── LendingPool.t.sol          # NEW
+│       └── RollupCore.t.sol           # EXISTING
+├── frontend/                          # Redesign
+│   ├── package.json                   # Add noir_js, barretenberg deps
 │   └── src/
 │       ├── app/
 │       │   ├── layout.tsx
-│       │   └── page.tsx
+│       │   └── page.tsx               # Lending dashboard
 │       ├── components/
-│       │   ├── Dashboard.tsx
-│       │   ├── OperationForm.tsx
-│       │   ├── BatchStatus.tsx
-│       │   ├── ProofProgress.tsx
-│       │   ├── L1Status.tsx
-│       │   └── ui/ (shadcn components)
+│       │   ├── BorrowerFlow.tsx        # NEW: multi-step borrow flow
+│       │   ├── LenderView.tsx          # NEW: deposit/withdraw
+│       │   ├── PrivacyViz.tsx          # NEW: split-screen privacy
+│       │   ├── ProofAnimation.tsx      # NEW: animated proof gen
+│       │   ├── PoolStats.tsx           # NEW: lending pool stats
+│       │   └── ui/ (shadcn - reuse)
 │       └── lib/
-│           ├── api.ts              # fetchBatchStatus, submitOperation, forceBatch
-│           └── utils.ts
+│           ├── noir.ts                 # NEW: noir_js proof generation
+│           ├── contracts.ts            # NEW: ethers/viem contract calls
+│           └── utils.ts                # EXISTING
+├── sp1-program/                       # KEEP: shows depth, not used in main flow
+├── script/                            # KEEP: shows depth
+├── sequencer/                         # KEEP: shows depth, not used in main flow
 └── docs/
-    └── AGILE_PLAN.md               # This file
+    └── AGILE_PLAN.md
 ```
 
 ---
 
-## COMPLETED SPRINTS (0-3)
+## Sprint N1: Noir Circuit (Days 1-4)
 
-### Sprint 0: Environment Setup ✅
-- Rust v1.93.0, SP1 CLI, Foundry v1.4.3, Next.js 16 installed
-- Project scaffolded, Git initialized
+### Goal
+Noir circuit that computes credit score from loan history and proves score >= threshold.
+All private inputs stay private. Only threshold + eligible + state commitment are public.
 
-### Sprint 1: Credit State Machine ✅
-- 9/9 tests passing
-- RegisterLoan, RecordRepayment, UpdateCreditScore all working
-- Deterministic state root computation
+### Circuit Design
 
-### Sprint 2: SP1 Integration ✅
-- SP1 program compiles to RISC-V ELF (223KB)
-- Compressed STARK proof generates in ~14 seconds for 5 ops
-- 25,638 cycles for 5 operations
-- Verification passes in 58ms
-- Script binary built at `script/target/release/prove`
+**Private inputs (witness -- never revealed):**
+- `loans`: array of loan records (borrower, amount, terms, repaid_amount, status)
+- `repayments`: array of repayment records
+- `borrower_address`: which address we're scoring
 
-### Sprint 3: Solidity Verifier ✅
-- SP1Verifier.sol deployed: `0x48eECA83A5A0B3072E9a71714589D55F1e70016D`
-- RollupCore.sol deployed: `0x7Ec1eb320aAe1F7BA8a324198E17d3Cf096B4679`
-- 11/11 contract tests passing
+**Public inputs (visible on-chain):**
+- `threshold`: minimum required score (e.g., 650)
+- `eligible`: bool (score >= threshold)
+- `state_commitment`: hash of the credit history (proves which data was used without revealing it)
+
+### `circuits/src/main.nr` (pseudocode)
+```noir
+// Credit score proof circuit
+// Proves: compute_score(private_history) >= public_threshold
+// Without revealing: the history, the score, or the borrower
+
+struct Loan {
+    amount: u64,
+    repaid_amount: u64,
+    is_repaid: bool,      // true if fully repaid
+    terms_months: u32,
+}
+
+fn compute_credit_score(loans: [Loan; MAX_LOANS], num_loans: u32) -> u32 {
+    let mut score: u32 = 500;  // base score
+
+    // Factor 1: Repayment ratio (35% weight, up to +175)
+    let mut repaid_count: u32 = 0;
+    for i in 0..MAX_LOANS {
+        if i < num_loans {
+            if loans[i].is_repaid {
+                repaid_count += 1;
+            }
+        }
+    }
+    if num_loans > 0 {
+        let ratio = (repaid_count * 100) / num_loans;
+        score += (ratio * 175) / 100;
+    }
+
+    // Factor 2: Utilization (30% weight, up to +150)
+    let mut total_borrowed: u64 = 0;
+    let mut total_repaid: u64 = 0;
+    for i in 0..MAX_LOANS {
+        if i < num_loans {
+            total_borrowed += loans[i].amount;
+            total_repaid += loans[i].repaid_amount;
+        }
+    }
+    if total_borrowed > 0 {
+        let util = ((total_repaid * 100) / total_borrowed) as u32;
+        let capped = if util > 100 { 100 } else { util };
+        score += (capped * 150) / 100;
+    }
+
+    // Factor 3: History length (15% weight, up to +80)
+    let capped_loans = if num_loans > 10 { 10 } else { num_loans };
+    score += capped_loans * 8;
+
+    // Clamp 300-850
+    if score < 300 { score = 300; }
+    if score > 850 { score = 850; }
+
+    score
+}
+
+fn main(
+    // Private inputs
+    loans: [Loan; MAX_LOANS],
+    num_loans: u32,
+
+    // Public inputs
+    threshold: pub u32,
+    state_commitment: pub Field,   // poseidon hash of loan data
+) -> pub bool {
+    // 1. Verify state commitment matches the provided loans
+    let computed_commitment = pedersen_hash(loans, num_loans);
+    assert(computed_commitment == state_commitment);
+
+    // 2. Compute credit score
+    let score = compute_credit_score(loans, num_loans);
+
+    // 3. Check eligibility
+    let eligible = score >= threshold;
+
+    // 4. Return eligibility (public output)
+    eligible
+}
+```
+
+### Key design decisions
+- **MAX_LOANS = 10**: Fixed-size array for circuit (enough for demo, keeps proof fast)
+- **State commitment**: Pedersen/Poseidon hash of loan data. Proves "this proof was computed from THIS specific history" without revealing the history. Prevents proof reuse with different data.
+- **Score never revealed**: Only `eligible` (bool) is public. Lender knows "yes/no", never the actual score.
+
+### Tasks
+- [ ] Initialize Noir project: `nargo new circuits`
+- [ ] Define `Loan` struct and `MAX_LOANS` constant
+- [ ] Implement `compute_credit_score()` in Noir
+- [ ] Implement `main()` with private/public input separation
+- [ ] Implement state commitment (Pedersen hash of loans)
+- [ ] Write Noir tests: `nargo test`
+  - [ ] Empty history → score 500, threshold 650 → eligible = false
+  - [ ] 5 loans, 3 repaid → score ~720, threshold 650 → eligible = true
+  - [ ] 5 loans, 0 repaid → score ~540, threshold 650 → eligible = false
+  - [ ] Wrong state commitment → assertion fails
+- [ ] `nargo compile` succeeds
+- [ ] `nargo prove` generates proof for test case
+- [ ] `nargo verify` passes
+
+### Checkpoint
+- [ ] Circuit compiles
+- [ ] All tests pass
+- [ ] Proof generates for 5-loan history
+- [ ] Proof generation time: ___ms (target: <10s for demo)
+- [ ] Private inputs confirmed NOT in proof
 
 ---
 
-## COMPLETED SPRINTS (4B-5)
+## Sprint N2: Contracts (Days 5-8)
 
-### Sprint 4B: Verify Deployed RollupCore ✅
+### Goal
+Deploy Noir verifier + LendingPool on Creditcoin testnet
 
-**Verified on-chain at `0x7Ec1eb320aAe1F7BA8a324198E17d3Cf096B4679`:**
-- [x] `getStateRoot()` → `0x0000000000000000010000...` (matches `CreditState::new().compute_root()`)
-- [x] `getBatchNumber()` → `0`
-- [x] `programVKey()` → `0x00d8368ebc6b3182ab36aa155e295897798a2b997db6c3bcb12a8387b571c476`
-- [x] `verifier()` → `0x48eECA83A5A0B3072E9a71714589D55F1e70016D`
-- [x] **No redeploy needed** — deployed ABI matches source
+### Contracts
 
-### Sprint 5: Fix & Run Sequencer ✅
+**1. Generate Noir verifier**
+```bash
+# Generate Solidity verifier from compiled circuit
+nargo codegen-verifier
+# or with bb (barretenberg):
+bb write_vk -b ./target/circuits.json -o ./target/vk
+bb contract -k ./target/vk -o ./contracts/src/NoirVerifier.sol
+```
 
-**Changes made:**
+**2. `contracts/src/CreditVerifier.sol`**
+- Wraps generated Noir verifier
+- Parses public inputs: threshold, state_commitment, eligible
+- Exposes `verifyCreditProof(bytes proof, bytes32[] publicInputs) → bool`
 
-1. **Fixed SDK version mismatch** in `sequencer/Cargo.toml`:
-   - `sp1-sdk`: `"5.0.8"` → `"=4.2.1"`
-   - `sp1-build`: `"5.0.8"` → `"=4.2.1"`
-   - `serde`: pinned to `"=1.0.217"` (required for alloy-consensus 0.14 compatibility)
+**3. `contracts/src/LendingPool.sol`**
+- `deposit() payable` -- lender deposits CTC
+- `withdraw(uint256)` -- lender withdraws
+- `borrow(uint256 amount, bytes proof, bytes32[] publicInputs)` -- borrow with ZK proof
+  - Calls CreditVerifier.verifyCreditProof()
+  - If valid: transfer CTC to borrower, record loan
+  - If invalid: revert
+- `repay(uint256 loanId) payable` -- repay loan
+- `getPoolStats() view` -- total deposited, borrowed, loan count
+- `getLoan(uint256) view` -- individual loan details
 
-2. **Replaced mocked L1 submitter** in `sequencer/src/submitter.rs`:
-   - Added individual alloy crates at 0.14.x (matching sp1-sdk internals):
-     ```toml
-     alloy-primitives = "1.0"
-     alloy-sol-types = "1.0"
-     alloy-provider = "0.14"
-     alloy-contract = "0.14"
-     alloy-network = "0.14"
-     alloy-signer-local = "0.14"
-     ```
-   - Note: Cannot use `alloy` meta-crate (0.9 or 1.5) due to `c-kzg` native link conflict with sp1-sdk's internal alloy 0.14 deps. Must use individual crates at matching versions.
-   - `submit_to_l1()` now: connects via alloy provider, signs with wallet from `PRIVATE_KEY`, calls `RollupCore.submitBatch()`, waits for receipt, returns real tx hash
-   - Logs on-chain state root and batch number before submission
-   - Reports block number and gas used after confirmation
+**Keep simple:**
+- No interest accrual (fixed 5% APR for display only)
+- No liquidation engine
+- No collateral management
+- Just: deposit, prove, borrow, repay
 
-3. **Test suite written** — 3 test files:
-   - `tests/batch_tests.rs` — 9 tests: state root determinism, contract root match, batch operations, error cases, credit score clamping, consecutive batches
-   - `tests/l1_integration.rs` — 5 tests: read state root, batch number, programVKey, verifier address from live Creditcoin testnet, chain ID check
-   - `tests/api_tests.rs` — 6 tests: health, batch-status, submit-op (3 op types), force-batch error case (require running sequencer, marked `#[ignore]`)
+### Tasks
+- [ ] Generate Noir Solidity verifier (`nargo codegen-verifier` or `bb contract`)
+- [ ] Write `CreditVerifier.sol` wrapping generated verifier
+- [ ] Write `LendingPool.sol` with deposit/borrow/repay
+- [ ] Write tests:
+  - [ ] Deposit and withdraw
+  - [ ] Borrow with valid proof succeeds
+  - [ ] Borrow with invalid proof reverts
+  - [ ] Repay updates loan status
+  - [ ] Pool stats return correct values
+  - [ ] Cannot borrow more than pool balance
+- [ ] `forge test` passes all tests
+- [ ] Deploy NoirVerifier to Creditcoin testnet
+- [ ] Deploy CreditVerifier to Creditcoin testnet
+- [ ] Deploy LendingPool to Creditcoin testnet
+- [ ] Seed pool with test CTC (deposit from deployer)
+- [ ] Verify `getPoolStats()` returns correct values
 
-**Test results:**
-- [x] `cargo test --test batch_tests` — 9/9 passing
-- [x] `cargo test --test l1_integration` — 5/5 passing (live Creditcoin testnet)
-- [x] `forge test` (contracts) — 11/11 passing
-- [x] `cargo check` — compiles with 0 errors
-
-**Tasks completed:**
-- [x] Fix sp1-sdk version to "=4.2.1" in sequencer/Cargo.toml
-- [x] Fix sp1-build version to "=4.2.1" in sequencer/Cargo.toml
-- [x] `cargo check` compiles without errors
-- [x] Implement real L1 submission in submitter.rs using alloy 0.14.x
-- [x] Write and pass 14 automated tests + 6 endpoint tests
-
-**Still needs manual testing:**
-- [ ] `cargo run --release` starts server on port 3001
-- [ ] `/health` returns OK
-- [ ] `/submit-op` accepts a RegisterLoan operation
-- [ ] `/batch-status` shows pending ops count
-- [ ] `/force-batch` generates proof and submits to L1
-- [ ] Verify tx on Creditcoin testnet explorer
-
----
-
-## REMAINING WORK
-
-### Sprint 6: Test Frontend Against Live Sequencer
-
-**Problem:** Frontend components exist but have never been tested against a running sequencer.
-
-**Tasks:**
-- [ ] Start sequencer: `cd sequencer && cargo run --release`
-- [ ] Start frontend: `cd frontend && npm run dev`
-- [ ] Open http://localhost:3000 - does it load without errors?
-- [ ] Submit a RegisterLoan via OperationForm
-- [ ] Verify BatchStatus shows pending_ops increment
-- [ ] Click "Generate Proof" in ProofProgress
-- [ ] Verify L1Status shows tx hash
-- [ ] Fix any TypeScript errors or API mismatches
-- [ ] Test the full flow 3 times consecutively
-
-**Known potential issues to check:**
-- CORS: sequencer has `CorsLayer::permissive()` so should be fine
-- API URL: frontend defaults to `http://localhost:3001` via `NEXT_PUBLIC_SEQUENCER_URL`
-- JSON shape: frontend `CreditOp` type uses `{ RegisterLoan?: {...} }` which matches Rust serde enum serialization
-
-**Checkpoint:**
-- [ ] Frontend loads at localhost:3000 without console errors
-- [ ] Can submit operations from UI
-- [ ] Batch status updates in real-time (2s polling)
-- [ ] Proof generation triggers and completes
-- [ ] L1 tx hash displays after settlement
-- [ ] Full flow works 3x consecutively
+### Checkpoint
+- [ ] All contract tests pass
+- [ ] NoirVerifier deployed: `0x___`
+- [ ] CreditVerifier deployed: `0x___`
+- [ ] LendingPool deployed: `0x___`
+- [ ] Pool seeded with test CTC
+- [ ] View functions return correct data
 
 ---
 
-### Sprint 7: Demo Polish (Days 8-14)
+## Sprint N3: Browser Proof Integration (Days 9-12)
 
-**Goal:** Demo that looks impressive on video. This is what judges see.
+### Goal
+Generate Noir proofs in the browser using noir_js + barretenberg WASM
 
-**Priority order (most important first):**
+### Setup
+```bash
+cd frontend
+npm install @noir-lang/noir_js @noir-lang/backend_barretenberg
+```
 
-1. **End-to-end flow must work flawlessly**
-   - [ ] Test 10 consecutive runs without crash
-   - [ ] Handle sequencer being slow (proof takes ~14s)
-   - [ ] Add "Reset Demo" endpoint on sequencer + button on frontend
+### `frontend/src/lib/noir.ts`
+```typescript
+import { Noir } from '@noir-lang/noir_js';
+import { BarretenbergBackend } from '@noir-lang/backend_barretenberg';
+import circuit from '../../circuits/target/circuits.json';
 
-2. **Visible metrics (avoid Pattern #3: Invisible Success)**
-   - [ ] Show operation counter: "5 operations batched"
-   - [ ] Show proof generation time: "Proof generated in 14.2s"
-   - [ ] Show gas savings: "1 tx vs 5 txs = 80% gas savings"
-   - [ ] Show batch number incrementing on L1
-   - [ ] Link to Creditcoin testnet explorer for submitted tx
+export interface LoanInput {
+  amount: number;
+  repaid_amount: number;
+  is_repaid: boolean;
+  terms_months: number;
+}
 
-3. **Loading states and feedback**
-   - [ ] Animated progress bar during proof generation
-   - [ ] Success state after L1 settlement
-   - [ ] Error states with clear messages
-   - [ ] Toast notifications for each step
+export interface CreditProofResult {
+  proof: Uint8Array;
+  publicInputs: string[];
+  eligible: boolean;
+  proofTimeMs: number;
+}
 
-4. **Visual polish**
-   - [ ] Clean layout that reads well on video
-   - [ ] Dark mode (looks better in screen recordings)
-   - [ ] Creditcoin branding/colors if applicable
-   - [ ] Mobile responsive
+export async function generateCreditProof(
+  loans: LoanInput[],
+  threshold: number,
+): Promise<CreditProofResult> {
+  const backend = new BarretenbergBackend(circuit);
+  const noir = new Noir(circuit, backend);
 
-5. **Demo data**
-   - [ ] Pre-fill realistic loan amounts ($1,000 - $50,000)
-   - [ ] Use readable addresses (not all zeros)
-   - [ ] Prepare a scripted sequence of 5 operations for video
+  // Pad loans to MAX_LOANS
+  const paddedLoans = padLoans(loans, MAX_LOANS);
+  const stateCommitment = computeCommitment(paddedLoans, loans.length);
 
-**Checkpoint:**
+  const input = {
+    loans: paddedLoans,
+    num_loans: loans.length,
+    threshold: threshold,
+    state_commitment: stateCommitment,
+  };
+
+  const start = performance.now();
+  const proof = await noir.generateProof(input);
+  const elapsed = performance.now() - start;
+
+  return {
+    proof: proof.proof,
+    publicInputs: proof.publicInputs,
+    eligible: proof.publicInputs[0] === '1', // or however noir encodes bool
+    proofTimeMs: elapsed,
+  };
+}
+
+export async function verifyProofLocally(
+  proof: Uint8Array,
+  publicInputs: string[],
+): Promise<boolean> {
+  const backend = new BarretenbergBackend(circuit);
+  return backend.verifyProof({ proof, publicInputs });
+}
+```
+
+### Key considerations
+- Barretenberg WASM loads ~5-10MB, need loading indicator
+- First proof is slower (WASM compilation), subsequent proofs faster
+- Circuit JSON needs to be bundled with frontend (copy from `circuits/target/`)
+- Test in Chrome, Firefox, Safari (barretenberg WASM compat)
+
+### Tasks
+- [ ] Install `@noir-lang/noir_js` and `@noir-lang/backend_barretenberg`
+- [ ] Copy compiled circuit JSON to frontend
+- [ ] Create `lib/noir.ts` with `generateCreditProof()` function
+- [ ] Create `lib/contracts.ts` with ethers/viem contract interaction
+  - [ ] `depositToPool(amount)`
+  - [ ] `borrowWithProof(amount, proof, publicInputs)`
+  - [ ] `repayLoan(loanId, amount)`
+  - [ ] `getPoolStats()`
+- [ ] Test proof generation in browser (console first)
+- [ ] Measure proof generation time in browser
+- [ ] Test submitting browser-generated proof to deployed contract
+- [ ] Verify on-chain: proof accepted, loan created
+
+### Checkpoint
+- [ ] Proof generates in browser: ___ms
+- [ ] Proof verifies on-chain on Creditcoin testnet
+- [ ] Full flow: browser proof → contract borrow → loan created
+- [ ] Works in Chrome and Firefox
+
+---
+
+## Sprint N4: Frontend (Lending UI) (Days 13-17)
+
+### Goal
+Interactive lending UI with privacy visualization. This is what wins.
+
+### Pages & Components
+
+**1. Landing Dashboard**
+- Pool stats: Total deposited, total borrowed, APR, active loans
+- Counter: "Loans issued: X | Data leaked: 0 bytes"
+- Two CTAs: "I'm a Lender" / "I'm a Borrower"
+
+**2. Borrower Flow (THE MAIN EVENT -- multi-step)**
+
+Step 1: **Enter Credit History**
+- Form with pre-filled sample: "Maria, Lagos, 5 microloans"
+- Add/remove loans manually
+- Shows computed score LOCALLY (never sent anywhere)
+- Button: "Generate ZK Proof"
+
+Step 2: **ZK Proof Generation** (the flashy moment)
+- Split screen animation:
+  - LEFT panel: "YOUR DATA (stays in browser)" -- shows credit history, fading/blurring
+  - RIGHT panel: "ON-CHAIN (all that's sent)" -- shows proof bytes appearing, small
+- Progress bar: "Generating zero-knowledge proof..."
+- Timer counting up
+- When done: "Proof generated in 8.3 seconds"
+
+Step 3: **Proof Verified**
+- Big checkmark: "Credit Score >= 650: VERIFIED"
+- Below: "Score revealed: NEVER | History sent: NOWHERE | Data leaked: 0 bytes"
+- Enter borrow amount field
+- Button: "Borrow from Pool"
+
+Step 4: **Loan Issued**
+- Real Creditcoin tx hash
+- Explorer link
+- "You borrowed $1,000 without revealing your financial history."
+- Confetti/celebration animation
+- Dashboard stats update live
+
+**3. Lender View**
+- Deposit CTC: amount input + "Deposit" button
+- Current deposits, pool share, APR
+- Withdraw button
+- "Your funds are protected by zero-knowledge proofs. Borrowers prove creditworthiness without revealing data."
+
+**4. Privacy Comparison (visible on landing page)**
+```
+┌─────────────────────────┐  ┌──────────────────────────┐
+│   TRADITIONAL LENDING   │  │      zkCredit            │
+│                         │  │                          │
+│  ✗ Name                 │  │  ✓ ZK Proof (32 bytes)   │
+│  ✗ SSN / National ID    │  │  ✓ Score >= 650: YES     │
+│  ✗ Income statements    │  │                          │
+│  ✗ Bank statements      │  │  That's it.             │
+│  ✗ Address              │  │  Nothing else.          │
+│  ✗ Employment history   │  │                          │
+│                         │  │  "Your history is yours. │
+│  ALL PUBLIC ON-CHAIN    │  │   The proof is all       │
+│                         │  │   they need."            │
+└─────────────────────────┘  └──────────────────────────┘
+```
+
+### Tasks
+- [ ] Redesign `page.tsx` as lending landing page with pool stats + privacy comparison
+- [ ] Build `BorrowerFlow.tsx` (4-step flow with transitions)
+- [ ] Build `LenderView.tsx` (deposit/withdraw)
+- [ ] Build `PrivacyViz.tsx` (split-screen animation during proof gen)
+- [ ] Build `ProofAnimation.tsx` (progress bar, timer, proof bytes reveal)
+- [ ] Build `PoolStats.tsx` (live stats from contract)
+- [ ] Connect wallet (MetaMask/injected provider for Creditcoin testnet)
+- [ ] Wire up noir.ts proof generation to BorrowerFlow
+- [ ] Wire up contracts.ts to LenderView and BorrowerFlow
+- [ ] Test full flow 5x consecutively
+- [ ] Dark mode
+
+### Checkpoint
+- [ ] Full borrower flow works: enter history → proof in browser → borrow on-chain
+- [ ] Lender can deposit and see pool stats
+- [ ] Privacy visualization renders correctly
+- [ ] Real Creditcoin tx hash links to explorer
+- [ ] 5 consecutive runs without crash
+
+---
+
+## Sprint N5: Demo Polish (Days 18-20)
+
+### Tasks
 - [ ] 10 consecutive runs without crash
-- [ ] All loading/success/error states work
-- [ ] Metrics visible (ops count, proof time, gas savings)
-- [ ] Testnet explorer link works
+- [ ] Pre-fill sample: "Maria, Nigerian entrepreneur, 5 microloans, 3 repaid on time"
+- [ ] Handle WASM loading gracefully (first load is slower)
+- [ ] Handle wallet not connected
+- [ ] Handle Creditcoin testnet errors
+- [ ] "Reset Demo" button
+- [ ] Mobile responsive (Seoul demo day)
+- [ ] Test with non-technical person
+- [ ] Practice demo script 5x
+
+### Demo Script
+1. Open dashboard: "Pool: $10,000 available, 5% APR, 0 loans"
+2. Show privacy comparison panel
+3. Click "I'm a Borrower"
+4. Load sample data: "Maria from Lagos, 5 microloans"
+5. Click "Generate ZK Proof"
+6. Watch split-screen: LEFT=data blurring, RIGHT=proof appearing
+7. "Proof generated in 8.3 seconds. Score >= 650: VERIFIED."
+8. "Notice: your credit history never left this browser."
+9. Enter $1,000, click "Borrow"
+10. Real Creditcoin tx, explorer link
+11. Dashboard: "Loans: 1 | Data leaked: 0 bytes"
+
+### Checkpoint
+- [ ] 10 consecutive clean runs
 - [ ] Demo script rehearsed 5x
+- [ ] Non-technical person understood it
 
 ---
 
-### Sprint 8: Video + Submission (Days 15-24)
+## Sprint N6: Video + Submission (Days 21-23)
 
-**This is an online async hackathon. Video is everything.**
-
-**Day 15-17: README + Documentation**
+### Day 21: README
 - [ ] Write README.md:
-  - Architecture diagram
-  - One-liner pitch
+  - "Prove your creditworthiness without revealing your history"
+  - Architecture: no backend, browser proofs
+  - Tech stack: Noir, barretenberg, Next.js, Foundry, Creditcoin
+  - Contract addresses
   - How to run locally
-  - Tech stack (SP1, Foundry, Axum, Next.js)
-  - Contract addresses on Creditcoin testnet
+  - Why it matters: 1.4B unbanked, privacy
   - Demo video link
-- [ ] Clean up GitHub repo (remove build artifacts, .env from tracking)
-- [ ] Ensure repo looks active (meaningful commit messages)
 
-**Day 18-20: Video Recording**
-- [ ] Set up screen recording (OBS)
-- [ ] Record 5+ takes of demo
-- [ ] Select best take
-- [ ] Add text overlays explaining what's happening
+### Day 22: Video
+- [ ] Record 5+ takes
+- [ ] Select best
+- [ ] Add text overlays
 
-**Video Structure (60-90 seconds):**
+### Video Structure (90 seconds)
 
 | Time | Content |
 |------|---------|
-| 0:00-0:10 | Problem: "Credit operations on Creditcoin: 1 tx per operation. Expensive." |
-| 0:10-0:20 | Solution: "zkCredit L2: Batch 100 operations into 1 ZK proof. 1 transaction." |
-| 0:20-0:50 | Live Demo: Submit 5 ops → Show batch filling → Generate proof → L1 settlement |
-| 0:50-1:00 | Results: "5 ops. 1 proof. 1 tx. 80% gas savings. Provably correct." |
-| 1:00-1:10 | Close: "Built on Creditcoin. Verified by SP1. ZK rollup for credit at scale." |
+| 0:00-0:10 | "1.4 billion people can't get loans. When they can, their entire financial history becomes public." |
+| 0:10-0:20 | "zkCredit: Zero-knowledge credit scoring on Creditcoin. Prove you're creditworthy. Reveal nothing." |
+| 0:20-0:25 | Show lending pool dashboard |
+| 0:25-0:35 | Enter credit history, click "Generate ZK Proof" |
+| 0:35-0:45 | Split-screen: data stays private, only proof goes out |
+| 0:45-0:55 | "Verified! Score >= 650." Borrow $1,000. Real Creditcoin tx. |
+| 0:55-1:05 | "Your data never left your browser. Not to us. Not to anyone." |
+| 1:05-1:15 | Privacy comparison panel + "Built on Creditcoin" |
+| 1:15-1:30 | Architecture + tech stack + "The proof is all they need." |
 
-**Day 21-22: Final Testing**
-- [ ] Full end-to-end test on Creditcoin testnet
-- [ ] Fix any last bugs
-- [ ] Record backup demo video
-
-**Day 23-24: Submit**
+### Day 23: Submit
+- [ ] Full end-to-end test
 - [ ] Upload video
-- [ ] Submit to hackathon platform
-- [ ] Double-check all links work
-
-**Checkpoint:**
-- [ ] Video recorded and edited
-- [ ] README complete
-- [ ] Submission complete
-- [ ] All links verified
+- [ ] Submit
+- [ ] Verify links
 
 ---
 
@@ -352,73 +594,28 @@ ctc/
 
 | Contract | Testnet Address |
 |----------|-----------------|
-| SP1Verifier | `0x48eECA83A5A0B3072E9a71714589D55F1e70016D` |
-| RollupCore | `0x7Ec1eb320aAe1F7BA8a324198E17d3Cf096B4679` (verified on-chain, ABI matches) |
+| NoirVerifier | TBD (deploy Sprint N2) |
+| CreditVerifier | TBD (deploy Sprint N2) |
+| LendingPool | TBD (deploy Sprint N2) |
+| SP1Verifier (legacy) | `0x48eECA83A5A0B3072E9a71714589D55F1e70016D` |
+| RollupCore (legacy) | `0x7Ec1eb320aAe1F7BA8a324198E17d3Cf096B4679` |
 
 **Deployer:** `0xABaF59180e0209bdB8b3048bFbe64e855074C0c4`
 **RPC:** `https://rpc.cc3-testnet.creditcoin.network`
-**Chain ID:** `102031` (0x18e8f)
-**Program VKey:** `0x00d8368ebc6b3182ab36aa155e295897798a2b997db6c3bcb12a8387b571c476`
+**Chain ID:** `102031`
 
 ---
 
-## Actual Versions (on disk)
+## Tech Stack
 
-| Component | Version |
-|-----------|---------|
-| sp1-zkvm (program) | 4.2.1 |
-| sp1-sdk (script) | =4.2.1 |
-| sp1-sdk (sequencer) | =4.2.1 ✅ FIXED |
-| sp1-build (sequencer) | =4.2.1 ✅ FIXED |
-| serde (sequencer) | =1.0.217 (pinned for alloy compat) |
-| alloy-provider/contract/network/signer-local (sequencer) | 0.14.x |
-| sp1-contracts (Solidity) | v4.0.0-rc.3 |
-| Foundry (forge) | v1.4.3 |
-| Solc | 0.8.20 |
-| Rust | 1.93.0 |
-| Next.js | 16.1.6 |
-| React | 19.2.3 |
-
----
-
-## Quick Reference Commands
-
-```bash
-# Build SP1 program
-cd sp1-program && cargo prove build
-
-# Generate proof (CLI)
-cd script && cargo run --release -- --prove
-
-# Run contract tests
-cd contracts && forge test -vvv
-
-# Run sequencer
-cd sequencer && cargo run --release
-
-# Run frontend
-cd frontend && npm run dev
-
-# Run all sequencer tests (batch + L1 integration)
-cd sequencer && cargo test -- --nocapture
-
-# Run only batch unit tests
-cd sequencer && cargo test --test batch_tests -- --nocapture
-
-# Run only L1 integration tests (requires network)
-cd sequencer && cargo test --test l1_integration -- --nocapture
-
-# Run API endpoint tests (requires sequencer running on port 3001)
-cd sequencer && cargo test --test api_tests -- --ignored --nocapture
-
-# Test sequencer API (manual)
-curl http://localhost:3001/health
-curl http://localhost:3001/batch-status
-curl -X POST http://localhost:3001/submit-op \
-  -H "Content-Type: application/json" \
-  -d '{"operation":{"RegisterLoan":{"borrower":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],"amount":1000,"terms_months":12}}}'
-curl -X POST http://localhost:3001/force-batch
-```
+| Component | Technology |
+|-----------|-----------|
+| ZK Circuit | Noir |
+| Browser Proofs | noir_js + barretenberg (WASM) |
+| Smart Contracts | Solidity 0.8.20, Foundry |
+| Frontend | Next.js 16, React 19, Tailwind, shadcn/ui |
+| Chain | Creditcoin CC3 Testnet (EVM) |
+| Wallet | MetaMask (injected provider) |
 
 ---
 
@@ -426,19 +623,38 @@ curl -X POST http://localhost:3001/force-batch
 
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
-| ~~Sequencer SDK mismatch breaks proofs~~ | ~~HIGH~~ | ~~High~~ | ✅ RESOLVED: Fixed to =4.2.1 |
-| ~~L1 submission via alloy fails~~ | ~~Medium~~ | ~~High~~ | ✅ RESOLVED: Real submitter using alloy 0.14.x |
-| Proof generation too slow for video | Low | Medium | Reduce to 3 ops for demo (faster proof) |
-| Frontend breaks against live API | Medium | Medium | Test early, fix API shape mismatches |
-| Creditcoin testnet down during video | Low | High | Record video with confirmed tx, not live |
-| Demo breaks during recording | Low | High | Record 5+ takes, use best one |
+| Noir verifier doesn't deploy on Creditcoin EVM | Low | High | Test deployment Day 5, fall back to mock verifier |
+| Browser proof gen too slow (>30s) | Medium | Medium | Reduce MAX_LOANS to 5, optimize circuit |
+| barretenberg WASM fails in some browsers | Low | Medium | Test Chrome + Firefox early, Safari backup |
+| LendingPool contract bugs | Medium | Medium | Keep contract dead simple, no interest math |
+| Frontend redesign takes too long | Medium | Medium | Focus on borrower flow only, skip lender UI polish |
+
+---
+
+## What To Say When Judges Ask
+
+**"Why Noir instead of SP1/Risc Zero/other zkVM?"**
+"SP1 and Risc Zero are general-purpose zkVMs -- great for complex computation but require a backend server to generate proofs. For credit scoring, the borrower's data should never leave their device. Noir lets us generate proofs entirely in the browser. The credit history enters the browser and the proof exits the browser. Nothing else."
+
+**"Did you actually build the SP1 version too?"**
+"Yes -- we built a full ZK rollup with SP1 first (show RollupCore on explorer). But when we realized the privacy story is stronger with client-side proofs, we pivoted to Noir. The SP1 rollup is still deployed on Creditcoin testnet if you want to see it. We chose the architecture that gives borrowers the most privacy."
+
+**"How is this different from zkMe or other ZK credit projects?"**
+"zkMe bridges FICO scores on-chain -- it requires you to already have a credit score from a traditional bureau. zkCredit works for the 1.4 billion people who DON'T have traditional credit scores. We compute the score from on-chain loan history and prove it in zero knowledge. No bureau needed. No intermediary needed."
+
+**"Is this production-ready?"**
+"This is a working prototype on Creditcoin testnet. For production: add more scoring factors, integrate with Creditcoin's existing credit transaction records, add circuit auditing, and deploy on mainnet. The ZK primitives are production-grade (Noir/barretenberg), the lending pool would need formal verification."
 
 ---
 
 ## Success Criteria
 
-- [ ] **End-to-end flow works**: UI → Sequencer → SP1 Proof → Creditcoin L1 tx
-- [ ] **Real L1 transaction**: Verifiable on Creditcoin testnet explorer
-- [ ] **Compelling video**: 60-90s showing the full flow
-- [ ] **Clean README**: Architecture, setup instructions, contract addresses
-- [ ] **"They built a ZK rollup"** reaction from judges
+- [ ] **DeFi track fit**: Lending protocol with ZK credit scoring
+- [ ] **Privacy story**: "Data never leaves your browser" (strongest possible claim)
+- [ ] **No backend**: Browser → Chain (judges can verify no server involved)
+- [ ] **Interactive demo**: Judge enters credit history, sees proof generate in their browser
+- [ ] **Real L1 transaction**: Borrow tx on Creditcoin explorer
+- [ ] **Compelling video**: 90s showing full flow with privacy split-screen
+- [ ] **Narrative match**: "Private credit scoring on the credit chain"
+- [ ] **Technical depth**: Noir circuit + deployed contracts + browser proofs + legacy SP1 rollup
+- [ ] **Judge reaction**: "They built ZK credit scoring that runs in the browser on Creditcoin"
