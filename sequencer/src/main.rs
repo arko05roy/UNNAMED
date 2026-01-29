@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
-use zkcredit_program::{CreditOp, CreditState};
+use zkcredit_program::CreditOp;
 
 mod batch;
 mod prover;

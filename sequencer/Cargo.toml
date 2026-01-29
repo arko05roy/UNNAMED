@@ -6,14 +6,26 @@ edition = "2021"
 [dependencies]
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "=1.0.217", features = ["derive"] }
 serde_json = "1.0"
-sp1-sdk = "5.0.8"
+sp1-sdk = "=4.2.1"
 zkcredit-program = { path = "../sp1-program" }
 hex = "0.4"
 tower-http = { version = "0.6", features = ["cors"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
+# Use individual alloy crates at 0.14.x to match sp1-sdk's internal deps
+alloy-primitives = "1.0"
+alloy-sol-types = "1.0"
+alloy-provider = "0.14"
+alloy-contract = "0.14"
+alloy-network = "0.14"
+alloy-signer-local = "0.14"
+url = "2"
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+
 [build-dependencies]
-sp1-build = "5.0.8"
+sp1-build = "=4.2.1"

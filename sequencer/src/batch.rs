@@ -5,10 +5,10 @@ use crate::submitter::submit_to_l1;
 use crate::BatchStatusResponse;
 
 pub struct BatchManager {
-    pending_ops: Vec<CreditOp>,
-    current_state: CreditState,
-    batch_capacity: usize,
-    last_batch_number: u64,
+    pub(crate) pending_ops: Vec<CreditOp>,
+    pub(crate) current_state: CreditState,
+    pub(crate) batch_capacity: usize,
+    pub(crate) last_batch_number: u64,
 }
 
 impl BatchManager {
